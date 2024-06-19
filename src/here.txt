@@ -1,0 +1,465 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   heredoc2.c                                         :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: jruhlman <jruhlman@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/04/15 16:40:56 by wkeiser           #+#    #+#             */
+/*   Updated: 2024/06/13 09:03:59 by jruhlman         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "../inc/minishell.h"
+
+char	**extract_delimiters(char *line, int *num_delimiters)
+{
+	char	**delimiters;
+	char	*start;
+	int		capacity;
+	char	*next_start;
+
+	capacity = count_heredoc_delimiters(line);
+	delimiters = (char **)malloc(capacity * sizeof(char *));
+	if (!delimiters)
+		return (NULL);
+	start = line;
+	*num_delimiters = 0;
+	next_start = ft_strnstr(start, "<<", strlen(start));
+	while (next_start)
+	{
+		start = next_start + 2;
+		if (!extract_next_delimiter(&start, num_delimiters, delimiters,
+				&capacity))
+		{
+			free_delimiters(delimiters, *num_delimiters);
+			return (NULL);
+		}
+		next_start = ft_strnstr(start, "<<", strlen(start));
+	}
+	return (delimiters);
+}
+
+char	*extract_next_delimiter(char **start, int *num_delimiters,
+		char **delimiters, int *capacity)
+{
+	char	*end;
+	size_t	len;
+
+	while (**start && ft_isspace(**start))
+		(*start)++;
+	end = *start;
+	while (*end && !ft_isspace(*end))
+		end++;
+	len = end - *start;
+	if (*num_delimiters >= *capacity)
+	{
+		if (!resize_delimiters_array(delimiters, capacity))
+			return (NULL);
+	}
+	delimiters[*num_delimiters] = (char *)malloc(len + 1);
+	if (!delimiters[*num_delimiters])
+		return (NULL);
+	ft_memcpy(delimiters[*num_delimiters], *start, len);
+	delimiters[*num_delimiters][len] = '\0';
+	(*num_delimiters)++;
+	*start = end;
+	return (*start);
+}
+
+char	**resize_delimiters_array(char **delimiters, int *capacity)
+{
+	int		new_capacity;
+	char	**new_delimiters;
+	int		i;
+
+	new_capacity = *capacity * 2;
+	new_delimiters = (char **)malloc(new_capacity * sizeof(char *));
+	if (!new_delimiters)
+		return (NULL);
+	i = 0;
+	while (i < *capacity)
+	{
+		new_delimiters[i] = delimiters[i];
+		i++;
+	}
+	free(delimiters);
+	*capacity = new_capacity;
+	return (new_delimiters);
+}
+
+void	free_delimiters(char **delimiters, int num_delimiters)
+{
+	int	i;
+
+	i = 0;
+	while (i < num_delimiters)
+	{
+		free(delimiters[i]);
+		i++;
+	}
+	free(delimiters);
+}
+
+void	cleanup_delimiters_and_tempfiles(char **delimiters,
+		char **temp_filenames, int num_delimiters)
+{
+	int	i;
+
+	i = 0;
+	while (i < num_delimiters)
+	{
+		if (delimiters[i])
+			free(delimiters[i]);
+		if (temp_filenames && temp_filenames[i])
+			free(temp_filenames[i]);
+		i++;
+	}
+	free(delimiters);
+	free(temp_filenames);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   heredoc3.c                                         :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: jruhlman <jruhlman@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/04/15 16:40:56 by wkeiser           #+#    #+#             */
+/*   Updated: 2024/06/13 09:04:01 by jruhlman         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "../inc/minishell.h"
+
+int	open_final_tempfile(char *final_tempfile)
+{
+	int		final_fd;
+	char	*pid_str;
+
+	pid_str = ft_itoa(getpid());
+	if (!pid_str)
+		return (-1);
+	ft_strcpy(final_tempfile, "/tmp/final_heredoc_");
+	ft_strcat(final_tempfile, pid_str);
+	free(pid_str);
+	final_fd = open(final_tempfile, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	if (final_fd == -1)
+		perror("Error opening final tempfile");
+	return (final_fd);
+}
+
+void	copy_single_tempfile(int final_fd, char *temp_filename)
+{
+	char	buffer[1024];
+	int		temp_fd;
+	ssize_t	bytes_read;
+
+	temp_fd = open(temp_filename, O_RDONLY);
+	if (temp_fd == -1)
+	{
+		perror("Error opening tempfile for reading");
+		return ;
+	}
+	bytes_read = read(temp_fd, buffer, sizeof(buffer));
+	while (bytes_read > 0)
+	{
+		write(final_fd, buffer, bytes_read);
+		bytes_read = read(temp_fd, buffer, sizeof(buffer));
+	}
+	close(temp_fd);
+}
+
+void	copy_tempfiles_to_final(char **temp_filenames, int num_delimiters,
+		int final_fd)
+{
+	int	i;
+
+	i = 0;
+	while (i < num_delimiters)
+	{
+		if (temp_filenames[i])
+		{
+			copy_single_tempfile(final_fd, temp_filenames[i]);
+		}
+		i++;
+	}
+}
+
+void	exe_command(char *cmd, char *final_tempfile, char **temp_filenames,
+		int num_delimiters)
+{
+	char	final_cmd[4096];
+	char	*argv[4];
+	int		status;
+	int		i;
+
+	ft_strcpy(final_cmd, cmd);
+	ft_strcat(final_cmd, " < ");
+	ft_strcat(final_cmd, final_tempfile);
+	argv[0] = "/bin/sh";
+	argv[1] = "-c";
+	argv[2] = final_cmd;
+	argv[3] = NULL;
+	status = execute_here_command(argv);
+	if (status == 0)
+	{
+		i = 0;
+		while (i < num_delimiters)
+		{
+			if (temp_filenames[i])
+				unlink(temp_filenames[i]);
+			i++;
+		}
+		unlink(final_tempfile);
+	}
+}
+
+void	cleanup_heredoc(t_heredoc_data_t *h)
+{
+	if (!h)
+		return ;
+	cleanup_delimiters_and_tempfiles(h->delimiters, h->temp_filenames,
+		h->num_delimiters);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   heredoc4.c                                         :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: jruhlman <jruhlman@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/04/15 16:40:56 by wkeiser           #+#    #+#             */
+/*   Updated: 2024/06/13 09:04:04 by jruhlman         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "../inc/minishell.h"
+
+void	process_heredocs(char *line)
+{
+	t_heredoc_data_t	h;
+
+	h.delimiters = extract_delimiters(line, &h.num_delimiters);
+	if (!h.delimiters || h.num_delimiters == 0)
+		return ;
+	h.temp_filenames = handle_heredocs(h.delimiters, h.num_delimiters);
+	if (!h.temp_filenames)
+		return (cleanup_delimiters_and_tempfiles(h.delimiters, h.temp_filenames,
+				h.num_delimiters));
+	h.cmd = split_command(line);
+	if (h.cmd)
+	{
+		h.final_fd = open_final_tempfile(h.final_tempfile);
+		if (h.final_fd == -1)
+			return (cleanup_delimiters_and_tempfiles(h.delimiters,
+					h.temp_filenames, h.num_delimiters));
+		copy_tempfiles_to_final(h.temp_filenames, h.num_delimiters, h.final_fd);
+		close(h.final_fd);
+		exe_command(h.cmd, h.final_tempfile, h.temp_filenames,
+			h.num_delimiters);
+	}
+	cleanup_delimiters_and_tempfiles(h.delimiters, h.temp_filenames,
+		h.num_delimiters);
+}
+
+void	write_line_to_fd(int fd, const char *line)
+{
+	char	*formatted_line;
+
+	formatted_line = malloc(ft_strlen(line) + 2);
+	if (!formatted_line)
+	{
+		perror("Fatal error: failed to allocate memory");
+		exit(EXIT_FAILURE);
+	}
+	if (formatted_line)
+	{
+		ft_strcpy(formatted_line, line);
+		ft_strcat(formatted_line, "\n");
+		write(fd, formatted_line, ft_strlen(formatted_line));
+		free(formatted_line);
+	}
+}
+
+char	*split_command(char *line)
+{
+	char	*cmd_end;
+
+	cmd_end = ft_strnstr(line, "<<", strlen(line));
+	if (cmd_end)
+	{
+		*cmd_end = '\0';
+		return (line);
+	}
+	return (NULL);
+}
+
+int	execute_here_command(char **argv)
+{
+	pid_t	pid;
+	int		status;
+	int		exit_status;
+
+	pid = fork();
+	if (pid == -1)
+	{
+		perror("Failed to fork process");
+		return (-1);
+	}
+	if (pid == 0)
+		execute_child_process(argv);
+	else if (pid > 0)
+	{
+		wait(&status);
+		if (WIFEXITED(status))
+		{
+			exit_status = WEXITSTATUS(status);
+			if (exit_status == 0)
+				return (0);
+			else
+				return (exit_status);
+		}
+	}
+	return (-1);
+}
+
+void	execute_child_process(char **argv)
+{
+	execve("/bin/sh", argv, NULL);
+	perror("execve failed");
+	exit(EXIT_FAILURE);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   heredoc.c                                          :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: wkeiser <wkeiser@student.42.fr>            +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/04/15 16:40:56 by wkeiser           #+#    #+#             */
+/*   Updated: 2024/06/11 09:42:58 by wkeiser          ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "../inc/minishell.h"
+
+int	open_and_write_tempfile(char *filename, char *delimiter)
+{
+	char	*line;
+	int		fd;
+
+	fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	if (fd == -1)
+	{
+		perror("Error opening file");
+		return (-1);
+	}
+	while (1)
+	{
+		line = readline("> ");
+		if (line == NULL)
+			break ;
+		if (strcmp(line, delimiter) == 0)
+		{
+			free(line);
+			break ;
+		}
+		write_line_to_fd(fd, line);
+		free(line);
+	}
+	close(fd);
+	return (0);
+}
+
+char	**allocate_temp_filenames(int num_delimiters)
+{
+	char	**temp_filenames;
+	int		i;
+
+	temp_filenames = malloc(sizeof(char *) * (num_delimiters + 1));
+	if (!temp_filenames)
+		return (NULL);
+	i = 0;
+	while (i < num_delimiters)
+	{
+		temp_filenames[i] = generate_unique_temp_filename();
+		if (!temp_filenames[i])
+		{
+			while (i > 0)
+			{
+				i--;
+				free(temp_filenames[i]);
+			}
+			free(temp_filenames);
+			return (NULL);
+		}
+		i++;
+	}
+	temp_filenames[num_delimiters] = NULL;
+	return (temp_filenames);
+}
+
+char	**handle_heredocs(char **delimiters, int num_delimiters)
+{
+	char	**temp_filenames;
+	int		i;
+
+	temp_filenames = allocate_temp_filenames(num_delimiters);
+	if (!temp_filenames)
+		return (NULL);
+	i = 0;
+	while (i < num_delimiters)
+	{
+		if (open_and_write_tempfile(temp_filenames[i], delimiters[i]) == -1)
+		{
+			free(temp_filenames[i]);
+			temp_filenames[i] = NULL;
+		}
+		i++;
+	}
+	return (temp_filenames);
+}
+
+char	*generate_unique_temp_filename(void)
+{
+	static int	counter = 0;
+	char		*filename;
+	char		*counter_str;
+
+	filename = malloc(sizeof(char) * 256);
+	if (!filename)
+	{
+		perror("Failed to allocate memory for filename");
+		return (NULL);
+	}
+	ft_strcpy(filename, "/tmp/heredoc_");
+	counter_str = ft_itoa(counter);
+	if (!counter_str)
+	{
+		free(filename);
+		return (NULL);
+	}
+	ft_strcat(filename, counter_str);
+	free(counter_str);
+	counter++;
+	return (filename);
+}
+
+int	count_heredoc_delimiters(char *line)
+{
+	int		count;
+	char	*start;
+	char	*next_start;
+
+	count = 0;
+	start = line;
+	next_start = ft_strnstr(start, "<<", strlen(start));
+	while (next_start)
+	{
+		count++;
+		start = next_start + 2;
+		next_start = ft_strnstr(start, "<<", strlen(start));
+	}
+	return (count);
+}

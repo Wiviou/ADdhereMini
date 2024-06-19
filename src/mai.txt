@@ -1,0 +1,543 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   main1.c                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: jruhlman <jruhlman@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/06/11 20:34:13 by jruhlman          #+#    #+#             */
+/*   Updated: 2024/06/17 22:12:10 by jruhlman         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "../inc/minishell.h"
+
+void	pwd_fit(t_struct **rr, char *pwd)
+{
+	destroy_file();
+	(*rr)->fd = open(".tmp.txt", O_CREAT | O_TRUNC | O_RDWR, 0644);
+	if ((*rr)->fd != -1)
+	{
+		ft_putstr_fd(pwd, (*rr)->fd);
+		ft_putchar_fd('\n', (*rr)->fd);
+		close((*rr)->fd);
+	}
+	ft_get_line((*rr)->fd, 1);
+	(*rr)->state.in_fd = open(".temp.txt", O_CREAT | O_TRUNC | O_RDWR, 0644);
+	if ((*rr)->state.in_fd != -1)
+	{
+		ft_putstr_fd(pwd, (*rr)->state.in_fd);
+		ft_putchar_fd('\n', (*rr)->state.in_fd);
+		close((*rr)->state.in_fd);
+	}
+	ft_get_line((*rr)->fd, 1);
+	(*rr)->state.is_in_echo = 0;
+}
+
+void	pwd_o(t_struct **rr)
+{
+	char	*pwd;
+	char	cwd[1024];
+	int		i;
+
+	pwd = get_env("PWD", rr);
+	if (!pwd || pwd[0] == '\0' || !*pwd )
+	{
+		if (getcwd(cwd, sizeof(cwd)) != NULL)
+			pwd = ft_strdup(cwd);
+		else
+			pwd = ft_strdup("Inconnu");
+		i = 0;
+		while ((*rr)->enve[i])
+			i++;
+		printf("%s\n", pwd);
+		free(pwd);
+	}
+	else
+		printf("%s\n", pwd);
+}
+
+void	invite_pwd0(char *pwd, t_struct **rr)
+{
+	(*rr)->couleur_in = "\033[1;32m";
+	(*rr)->couleur_out = "\033[0m\33[0;31m> \033[0m";
+	(*rr)->len_invite = ft_strlen(pwd) + ft_strlen((*rr)->couleur_in)
+		+ ft_strlen((*rr)->couleur_out) + 1;
+	(*rr)->invite = malloc((*rr)->len_invite);
+	if (!(*rr)->invite)
+	{
+		free(pwd);
+		return ;
+	}
+	ft_strcpy((*rr)->invite, (*rr)->couleur_in);
+	ft_strcat((*rr)->invite, pwd);
+	ft_strcat((*rr)->invite, (*rr)->couleur_out);
+	if (pwd != get_env("PWD", rr))
+		free(pwd);
+}
+
+char	*invite_pwd(t_struct **rr)
+{
+	char	*pwd;
+	char	cwd[1024];
+
+	pwd = get_env("PWD", rr);
+	if (!pwd)
+	{
+		if (getcwd(cwd, sizeof(cwd)) != NULL)
+			pwd = ft_strdup(cwd);
+		else
+			pwd = "Inconnu";
+	}
+	invite_pwd0(pwd, rr);
+	return ((*rr)->invite);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   main2.c                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: jruhlman <jruhlman@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/06/11 21:06:42 by jruhlman          #+#    #+#             */
+/*   Updated: 2024/06/17 22:14:20 by jruhlman         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "../inc/minishell.h"
+
+void	concat_n0e(char *line, t_n **catn)
+{
+	(*catn)->h = (*catn)->i + 3;
+	(*catn)->start = (*catn)->h;
+	(*catn)->h += 1;
+	while (line[(*catn)->h])
+	{
+		while (ft_isspace(line[(*catn)->h]) && line[(*catn)->h])
+			(*catn)->h++;
+		if (line[(*catn)->h] && line[(*catn)->h] == '-' && line[(*catn)->h + 1]
+			&& line[(*catn)->h + 1] == 'n')
+		{
+			(*catn)->sec = 1;
+			(*catn)->h += 2;
+			while (line[(*catn)->h] && line[(*catn)->h] == 'n')
+				(*catn)->h += 1;
+		}
+		if ((line[(*catn)->h] && line[(*catn)->h] != '-'
+				&& !ft_isspace(line[(*catn)->h])) || line[(*catn)->h] == '\0'
+			|| (line[(*catn)->h] && line[(*catn)->h] == '-' && line[(*catn)->h
+					+ 1] && line[(*catn)->h + 1] != 'n'))
+			break ;
+	}
+	(*catn)->end = (*catn)->h;
+	(*catn)->blend = (*catn)->h - (*catn)->start;
+	(*catn)->i += 4;
+}
+
+void	concat_n0(char *line, t_n **catn)
+{
+	while (line[(*catn)->i])
+	{
+		if (line[(*catn)->i + 1] && line[(*catn)->i + 2] && line[(*catn)->i
+				+ 3])
+		{
+			if (line[(*catn)->i] == 'e' && line[(*catn)->i + 1] == 'c'
+				&& line[(*catn)->i + 2] == 'h' && line[(*catn)->i + 3] == 'o')
+				concat_n0e(line, catn);
+			else
+				(*catn)->i++;
+		}
+		else
+			(*catn)->i++;
+	}
+}
+
+char	*concat_n(char *line, t_n **catn)
+{
+	char	*no_n;
+
+	(*catn)->i = 0;
+	(*catn)->h = 0;
+	(*catn)->sec = 0;
+	(*catn)->start = 0;
+	(*catn)->end = 0;
+	(*catn)->blend = 0;
+	(*catn)->lend = 0;
+	concat_n0(line, catn);
+	(*catn)->lend = (*catn)->i - (*catn)->blend + 5;
+	(*catn)->i = 0;
+	no_n = malloc(sizeof(char) * ((*catn)->lend + 1));
+	if (!no_n)
+		return (NULL);
+	if ((*catn)->sec)
+	{
+		concat_ni(catn, line, &no_n);
+		return (no_n);
+	}
+	else
+	{
+		free(no_n);
+		return (line);
+	}
+}
+
+void	init_main(t_struct **rr, t_envp **envp, char **env)
+{
+	(*rr)->dead = 0;
+	make_env(envp, env, rr);
+	(*rr)->interro = 0;
+	(*rr)->exit_nodig = 0;
+	(*rr)->exit_to_many = 0;
+	(*rr)->exit_val = 0;
+	(*rr)->no_val = 0;
+	(*rr)->plus = 0;
+	(*rr)->ambigus = 0;
+	(*rr)->is_cd = 0;
+	stor_env(envp, rr);
+}
+
+int	check_struct(t_struct **rr, t_n **catn)
+{
+	*catn = malloc(sizeof(t_n));
+	*rr = malloc(sizeof(t_struct));
+	if (!*rr || !*catn)
+		return (1);
+	return (0);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   main3.c                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: jruhlman <jruhlman@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/06/11 22:18:48 by jruhlman          #+#    #+#             */
+/*   Updated: 2024/06/14 07:35:34 by jruhlman         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "../inc/minishell.h"
+
+t_t	*init_k(void)
+{
+	t_t	*k_;
+
+	k_ = malloc(sizeof(t_t));
+	if (!k_)
+		return (NULL);
+	k_->envp = NULL;
+	k_->node = NULL;
+	k_->sub = NULL;
+	k_->catn = NULL;
+	k_->rr = NULL;
+	if (check_struct(&k_->rr, &k_->catn))
+		return (NULL);
+	k_->rr->enve = malloc(sizeof(char *) * 256);
+	if (!k_->rr->enve)
+	{
+		free(k_->rr);
+		free(k_->catn);
+		return (NULL);
+	}
+	return (k_);
+}
+
+int	main_read(t_t **k_, char **line, char ***dir, char **luna)
+{
+	char	*invite;
+	int		inf;
+
+	init_main_read(k_);
+	*dir = NULL;
+	invite = NULL;
+	(*k_)->rr->lun = NULL;
+	invite = invite_pwd(&(*k_)->rr);
+	*luna = readline(invite);
+	if (*luna != NULL)
+	{
+		*line = ft_strdup(*luna);
+		(*k_)->rr->lun = *line;
+		free(*luna);
+	}
+	free(invite);
+	if (!*luna)
+	{
+		free(*luna);
+		printf("exit\n");
+		return (1);
+	}
+	
+	inf = 0;
+	while ((*line)[inf] != '\0' && ft_isspace((*line)[inf]))
+		inf++;
+	if (**line == '\0' || (*line)[inf] == '\0')
+	{
+		free(*line);
+		return (7);
+	}
+	add_history(*line);
+	return (0);
+}
+
+int	pr_clean(char ***dir, t_t **k_, char **processed_line)
+{
+	delete_list_and(&(*k_)->node);
+	free_tab((void **)(*dir));
+	destroy_file();
+	free(*processed_line);
+	return (7);
+}
+
+int	p_main(char ***dir, t_t **k_, char **processed_line)
+{
+	t_node	*temp;
+
+	token(*dir, &(*k_)->node, &(*k_)->sub, &(*k_)->rr);
+	free(*processed_line);
+	temp = (*k_)->node;
+	while (temp != NULL)
+	{
+		if (temp->sub->dta->token == DEAD)
+			(*k_)->rr->dead = 1;
+		temp = temp->next;
+	}
+	if ((*k_)->rr->dead)
+	{
+		if ((*k_)->rr->state.piper != NULL)
+			free((*k_)->rr->state.piper);
+		if ((*k_)->rr->state.pide != NULL)
+			free((*k_)->rr->state.pide);
+		delete_list_and(&(*k_)->node);
+		free_tab((void **)*dir);
+		destroy_file();
+		return (7);
+	}
+	return (1);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   main4.c                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: jruhlman <jruhlman@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/06/13 09:43:16 by jruhlman          #+#    #+#             */
+/*   Updated: 2024/06/17 22:14:15 by jruhlman         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "../inc/minishell.h"
+
+void	concat_ni(t_n **catn, char *line, char **no_n)
+{
+	while (line[(*catn)->i] && (*catn)->i < (*catn)->start + 1)
+	{
+		(*no_n)[(*catn)->i] = line[(*catn)->i];
+		(*catn)->i++;
+	}
+	(*no_n)[(*catn)->i++] = ' ';
+	(*no_n)[(*catn)->i++] = '-';
+	(*no_n)[(*catn)->i++] = 'n';
+	(*no_n)[(*catn)->i++] = ' ';
+	while (line[(*catn)->end])
+	{
+		(*no_n)[(*catn)->i++] = line[(*catn)->end++];
+	}
+	(*no_n)[(*catn)->i] = '\0';
+	free(line);
+}
+
+void	init_main_read(t_t **k_)
+{
+	(*k_)->rr->dead = 0;
+	(*k_)->rr->state.piper = NULL;
+	(*k_)->rr->state.pide = NULL;
+}
+
+int	pro_main(t_t **k_, char **processed_line)
+{
+	*processed_line = search_multi(*processed_line);
+	if (!*processed_line)
+	{
+		printf("Syntaxe Error\n");
+		if ((*k_)->rr->rsult != NULL)
+			free((*k_)->rr->rsult);
+		free(*processed_line);
+		destroy_file();
+		delete_list_and(&(*k_)->node);
+		return (7);
+	}
+	*processed_line = clean_concat(*processed_line);
+	return (1);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   main.c                                             :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: jruhlman <jruhlman@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2024/06/14 07:32:40 by jruhlman          #+#    #+#             */
+/*   Updated: 2024/06/17 23:04:03 by jruhlman         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "../inc/minishell.h"
+
+void	print_255(t_t **k_)
+{
+	int	fd;
+
+	printf("minishell: exit: %s: numeric argument required\n",
+			(*k_)->node->sub->next->dta->val);
+	fd = open(".interro.txt", O_TRUNC | O_CREAT | O_RDWR, 0644);
+	ft_putnbr_fd(255, fd);
+	close(fd);
+	interro_state(&(*k_)->rr);
+	(*k_)->rr->exit_val = (*k_)->rr->interro;
+}
+
+int	p_man(char ***dir, t_t **k_, char **line)
+{
+	free((*k_)->rr->state.pide);
+	free((*k_)->rr->state.piper);
+	free_tab((void **)*dir);
+	delete_envp(&(*k_)->envp);
+	destroy_file();
+	printf("exit\n");
+	if ((*k_)->rr->exit_nodig)
+		print_255(k_);
+	delete_list_and(&(*k_)->node);
+	if ((*k_)->rr->exit_to_many)
+	{
+		printf("minishell: exit: too many arguments\n");
+		return (7);
+	}
+	free(*line);
+	free_tab((void **)(*k_)->rr->enve);
+	destroy_file();
+	rl_clear_history();
+	exit((*k_)->rr->exit_val);
+	return (1);
+}
+
+int	man_main(char ***dir, t_t **k_, char **line, char **processed_line)
+{
+	if (*processed_line && **processed_line)
+	{
+		(*k_)->o = pro_main(k_, processed_line);
+		if ((*k_)->o == 7)
+			return (7);
+		*dir = ft_split_quote(*processed_line, ' ', '\t');
+		*dir = clean_quote_tab(*dir, &(*k_)->rr);
+		(*k_)->o = p_main(dir, k_, processed_line);
+		if ((*k_)->o == 7)
+			return (7);
+	}
+	else
+		free(*processed_line);
+	int kio =  read_shell(&(*k_)->node, &(*k_)->envp, &(*k_)->rr, (*k_)->rr->enve);
+	if (kio)
+	{
+		if (kio == 7)
+			return (7);
+		(*k_)->o = p_man(dir, k_, line);
+		if ((*k_)->o == 7)
+			return (7);
+	}
+	return (1);
+}
+
+int	v_main(char ***dir, t_t **k_, char **line)
+{
+	size_t	needed_length;
+	char	*processed_line;
+	int		o;
+
+	if (ft_strnstr(*line, "<<", strlen(*line)))
+		process_heredocs(*line);
+	else
+	{
+		(*k_)->rr->ambigus = 0;
+		needed_length = calculate_required_length(*line, &(*k_)->rr);
+		processed_line = perform_replacements(*line, needed_length, &(*k_)->rr);
+		o = man_main(dir, k_, line, &processed_line);
+		if (o == 7)
+			return (7);
+		//free(*line);
+		if ((*k_)->rr->state.piper != NULL)
+			free((*k_)->rr->state.piper);
+		if ((*k_)->rr->state.pide != NULL)
+			free((*k_)->rr->state.pide);
+		if (*dir != NULL)
+			free_tab((void **)*dir);
+		*dir = NULL;
+	}
+	return (1);
+}
+
+void	ma_main(char ***dir, t_t **k_, char **line, char **env)
+{
+	int	o;
+
+	(*k_)->luna = NULL;
+	init_main(&(*k_)->rr, &(*k_)->envp, env);
+	(*k_)->rr->envp = (*k_)->envp;
+	while (1)
+	{
+		
+		o = main_read(k_, line, dir, &(*k_)->luna);
+		if (o == 1)
+			break ;
+		else if (o == 7)
+		{
+			continue ;
+		}
+		*line = concat_n(*line, &(*k_)->catn);
+		
+		o = v_main(dir, k_, line);
+		if (o == 7)
+		{
+			continue ;
+		}
+		if ((*k_)->rr->dead)
+		{
+			continue ;
+		}
+		
+	}
+	if ((*k_)->luna != NULL)
+		free((*k_)->luna);
+	free_tab((void **)(*k_)->rr->enve);
+	if ((*k_)->rr != NULL)
+		free((*k_)->rr);
+	delete_envp(&(*k_)->envp);
+	free((*k_)->luna);
+}
+
+int	main(int argc, char **argv, char **env)
+{
+	char	*line;
+	
+	char	**dir;
+	t_t		*k_;
+
+	if (argc == 1 && argv[1] == NULL)
+	{
+	g_child_running = 0;
+	setup_sigint_handler();
+	using_history();
+	k_ = init_k();
+	if (!k_)
+		return (1);
+	line = NULL;
+	dir = NULL;
+	ma_main(&dir, &k_, &line, env);
+	free(k_->luna);
+	free(k_->catn);
+	free(k_);
+	destroy_file();
+	rl_clear_history();
+	}
+	return (0);
+}
